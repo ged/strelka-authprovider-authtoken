@@ -1,0 +1,8 @@
+History.rdoc
+README.rdoc
+Rakefile
+data/strelka/_auth_token/apps/strelka/_auth_token_app
+data/strelka/_auth_token/templates/layout.tmpl
+data/strelka/_auth_token/templates/top.tmpl
+lib/strelka/_auth_token.rb
+spec/strelka/_auth_token_spec.rb

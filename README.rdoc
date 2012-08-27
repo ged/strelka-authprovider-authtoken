@@ -1,0 +1,16 @@
+= Strelka-AuthToken
+
+* FIX (url)
+
+== Description
+
+FIX (describe your package)
+
+== Installation
+
+    gem install Strelka-AuthToken
+
+== License
+
+Copyright (c) 2012, FIX
+All rights reserved.
