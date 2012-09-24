@@ -11,14 +11,14 @@ require 'strelka/mixins'
 
 # AuthToken authentication provider for Strelka applications.
 #
-# This plugin provides cookie-based authentication using the "SCS: Secure Cookie 
-# Sessions for HTTP"
+# This plugin provides cookie-based authentication using the "SCS: Secure
+# Cookie Sessions for HTTP" described in:
 #
 #   http://tools.ietf.org/html/draft-secure-cookie-session-protocol-04
 #
 # == Configuration
 #
-# The configuration for this provider is read from the 'auth' section of the config, and
+# The configuration for this provider is read from the 'authtoken' section of the config, and
 # may contain the following keys:
 #
 # [realm]::         the 
