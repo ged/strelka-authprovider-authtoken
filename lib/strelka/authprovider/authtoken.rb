@@ -11,59 +11,71 @@ require 'strelka/mixins'
 
 # AuthToken authentication provider for Strelka applications.
 #
-# This plugin provides cookie-based authentication using the "Secure Cookie Protocol"
-# described in:
+# This plugin provides cookie-based authentication using the "SCS: Secure Cookie 
+# Sessions for HTTP"
 #
-#   http://www.cse.msu.edu/~alexliu/publications/Cookie/cookie.pdf
+#   http://tools.ietf.org/html/draft-secure-cookie-session-protocol-04
 #
 # == Configuration
 #
 # The configuration for this provider is read from the 'auth' section of the config, and
 # may contain the following keys:
 #
-# [users]::   a Hash of username: SHA1+Base64'ed passwords
+# [realm]::         the 
+# [cookie_name]::   a Hash of username: SHA1+Base64'ed passwords
 #
 # An example:
 #
 #   --
 #   auth:
-#     realm: Acme Admin Console
-#     users:
-#       mgranger: "9d5lIumnMJXmVT/34QrMuyj+p0E="
-#       jblack: "1pAnQNSVtpL1z88QwXV4sG8NMP8="
-#       kmurgen: "MZj9+VhZ8C9+aJhmwp+kWBL76Vs="
+#     provider: authtoken
 #
-class Strelka::AuthProvider::Basic < Strelka::AuthProvider
+class Strelka::AuthProvider::AuthToken < Strelka::AuthProvider
 	extend Loggability,
 	       Configurability,
 	       Strelka::MethodUtilities
 	include Strelka::Constants
 
 	# Configurability API - set the section of the config
-	config_key :auth
+	config_key :authtoken
 
 
-	@users = nil
-	@realm = nil
+	# Default configuration
+	CONFIG_DEFAULTS = {
+		cookie_name:  'strelka-authtoken',
+		realm:        nil,
+		users:        [],
+	}.freeze
+
+
+	##
+	# The name of the cookie used for the authentication token
+	singleton_attr_accessor :cookie_name
+	@cookie_name = CONFIG_DEFAULTS[:cookie_name]
 
 	##
 	# The Hash of users and their SHA1+Base64'ed passwords
 	singleton_attr_accessor :users
+	@users = CONFIG_DEFAULTS[:users]
 
 	##
 	# The authentication realm
 	singleton_attr_accessor :realm
+	@realm = CONFIG_DEFAULTS[:realm]
 
 
 	### Configurability API -- configure the auth provider instance.
 	def self::configure( config=nil )
 		if config
-			self.log.debug "Configuring Basic authprovider: %p" % [ config ]
-			self.realm = config['realm'] if config['realm']
-			self.users = config['users'] if config['users']
+			self.log.debug "Configuring AuthToken authprovider: %p" % [ config ]
+			self.cookie_name  = config[:cookie_name]
+			self.realm        = config[:realm]
+			self.users        = config[:users]
 		else
-			self.realm = nil
-			self.users = {}
+			self.log.debug "Configuring AuthToken authprovider with default"
+			self.cookie_name  = CONFIG_DEFAULTS[:cookie_name]
+			self.realm        = CONFIG_DEFAULTS[:realm]
+			self.users        = CONFIG_DEFAULTS[:users]
 		end
 	end
 
@@ -86,6 +98,7 @@ class Strelka::AuthProvider::Basic < Strelka::AuthProvider
 			self.log.warn "No users configured -- using an empty user list"
 			self.class.users = {}
 		end
+
 	end
 
 
@@ -96,30 +109,27 @@ class Strelka::AuthProvider::Basic < Strelka::AuthProvider
 	# Check the authentication present in +request+ (if any) for validity, returning the
 	# authenticating user's name if authentication succeeds.
 	def authenticate( request )
-		authheader = request.header.authorization or
-			self.log_failure "No authorization header in the request."
+		Strelka::SCSCookie.rotate_keys
 
-		# Extract the credentials bit
-		base64_userpass = authheader[ /^\s*Basic\s+(\S+)$/i, 1 ] or
-			self.log_failure "Invalid Basic Authorization header (%p)" % [ authheader ]
+		if user = self.check_for_auth_cookie( request )
+			return user
+		else
+			finish_with( HTTP::AUTH_REQUIRED )
+		end
+	end
 
-		# Unpack the username and password
-		credentials = base64_userpass.unpack( 'm' ).first
-		self.log_failure "Malformed credentials %p" % [ credentials ] unless
-			credentials.index(':')
 
-		# Split the credentials, check for valid user
-		username, password = credentials.split( ':', 2 )
-		digest = self.class.users[ username ] or
-			self.log_failure "No such user %p." % [ username ]
+	### Extract credentials from the given request and validate them, either via a
+	### valid authentication token, or from request parameters.
+	def check_for_auth_cookie( request )
+		cookie = request.cookies[ self.class.cookie_name ] or
+			log_failure "No auth cookie: %s" % [ self.class.cookie_name ]
 
-		# Fail if the password's hash doesn't match
-		self.log_failure "Password mismatch." unless
-			digest == Digest::SHA1.base64digest( password )
+		scs_cookie = Strelka::SCSCookie.from_regular_cookie( cookie ) or
+			log_failure "Couldn't upgrade the %s cookie to SCS" % [ self.class.cookie_name]
 
-		# Success!
-		self.log.info "Authentication for %p succeeded." % [ username ]
-		return username
+		request.cookies[ self.class.cookie_name ] = scs_cookie
+		return scs_cookie.value
 	end
 
 
@@ -131,7 +141,7 @@ class Strelka::AuthProvider::Basic < Strelka::AuthProvider
 	### Log a message at 'info' level and return false.
 	def log_failure( reason )
 		self.log.warn "Auth failure: %s" % [ reason ]
-		header = "Basic realm=%s" % [ self.class.realm ]
+		header = "AuthToken realm=%s" % [ self.class.realm ]
 		finish_with( HTTP::AUTH_REQUIRED, "Requires authentication.", www_authenticate: header )
 	end
 
