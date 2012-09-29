@@ -8,6 +8,8 @@ require 'strelka' unless defined?( Strelka )
 require 'strelka/app' unless defined?( Strelka::App )
 require 'strelka/authprovider'
 require 'strelka/mixins'
+require 'strelka/scscookie'
+
 
 # AuthToken authentication provider for Strelka applications.
 #
@@ -40,11 +42,17 @@ class Strelka::AuthProvider::AuthToken < Strelka::AuthProvider
 	config_key :authtoken
 
 
+	# Library version constant
+	VERSION = '0.0.1'
+
+	# Version-control revision constant
+	REVISION = %q$Revision$
+
+
 	# Default configuration
 	CONFIG_DEFAULTS = {
 		cookie_name:  'strelka-authtoken',
 		realm:        nil,
-		users:        [],
 	}.freeze
 
 
@@ -54,11 +62,6 @@ class Strelka::AuthProvider::AuthToken < Strelka::AuthProvider
 	@cookie_name = CONFIG_DEFAULTS[:cookie_name]
 
 	##
-	# The Hash of users and their SHA1+Base64'ed passwords
-	singleton_attr_accessor :users
-	@users = CONFIG_DEFAULTS[:users]
-
-	##
 	# The authentication realm
 	singleton_attr_accessor :realm
 	@realm = CONFIG_DEFAULTS[:realm]
@@ -66,17 +69,11 @@ class Strelka::AuthProvider::AuthToken < Strelka::AuthProvider
 
 	### Configurability API -- configure the auth provider instance.
 	def self::configure( config=nil )
-		if config
-			self.log.debug "Configuring AuthToken authprovider: %p" % [ config ]
-			self.cookie_name  = config[:cookie_name]
-			self.realm        = config[:realm]
-			self.users        = config[:users]
-		else
-			self.log.debug "Configuring AuthToken authprovider with default"
-			self.cookie_name  = CONFIG_DEFAULTS[:cookie_name]
-			self.realm        = CONFIG_DEFAULTS[:realm]
-			self.users        = CONFIG_DEFAULTS[:users]
-		end
+		config ||= {}
+
+		self.log.debug "Configuring AuthToken authprovider: %p" % [ config ]
+		self.cookie_name  = config[:cookie_name] || CONFIG_DEFAULTS[:cookie_name]
+		self.realm        = config[:realm]       || CONFIG_DEFAULTS[:realm]
 	end
 
 
@@ -94,11 +91,6 @@ class Strelka::AuthProvider::AuthToken < Strelka::AuthProvider
 			self.class.realm = self.app.conn.app_id
 		end
 
-		unless self.class.users
-			self.log.warn "No users configured -- using an empty user list"
-			self.class.users = {}
-		end
-
 	end
 
 
@@ -106,29 +98,40 @@ class Strelka::AuthProvider::AuthToken < Strelka::AuthProvider
 	public
 	######
 
-	# Check the authentication present in +request+ (if any) for validity, returning the
-	# authenticating user's name if authentication succeeds.
+	### Check the authentication present in +request+ (if any) for validity, returning the
+	### authenticating user's name if authentication succeeds.
 	def authenticate( request )
 		Strelka::SCSCookie.rotate_keys
+		return self.check_for_auth_cookie( request )
+	end
 
-		if user = self.check_for_auth_cookie( request )
-			return user
-		else
-			finish_with( HTTP::AUTH_REQUIRED )
-		end
+
+	### Add a authtoken cookie for +username+ to the response for the given +request+ when auth
+	### succeeds.
+	def auth_succeeded( request, username )
+
+		# Add the token to the response
+		# self.log.debug "Adding an SCS cookie for %p to the response." % [ username ]
+		cookie = Strelka::SCSCookie.new( self.class.cookie_name, username )
+		request.response.cookies << cookie
 	end
 
 
 	### Extract credentials from the given request and validate them, either via a
 	### valid authentication token, or from request parameters.
 	def check_for_auth_cookie( request )
+		# self.log.debug "Checking for an auth cookie."
 		cookie = request.cookies[ self.class.cookie_name ] or
 			log_failure "No auth cookie: %s" % [ self.class.cookie_name ]
 
+		# self.log.debug "  upgrading the regular cookie to an SCSCookie."
 		scs_cookie = Strelka::SCSCookie.from_regular_cookie( cookie ) or
 			log_failure "Couldn't upgrade the %s cookie to SCS" % [ self.class.cookie_name]
 
+		# self.log.debug "  setting the %s cookie to %p" % [ self.class.cookie_name, scs_cookie ]
 		request.cookies[ self.class.cookie_name ] = scs_cookie
+
+		# self.log.debug "  returning authenticated username: %p" % [ scs_cookie.value ]
 		return scs_cookie.value
 	end
 

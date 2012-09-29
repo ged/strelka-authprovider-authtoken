@@ -1,2 +1,5 @@
 \.env$
 \.sqlite$
+coverage/
+ChangeLog
+logs/

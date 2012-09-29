@@ -1,8 +1,0 @@
----
-mongrel2:
-  configdb: mongrel2.sqlite
-
-logging:
-  __default__: debug (color)
-  inversion: info(color)
-

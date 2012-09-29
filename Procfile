@@ -1,4 +1,4 @@
 # Foreman procfile
-mongrel2: m2sh.rb -c mongrel2.sqlite start
-demo: strelka -l debug -c datas/strelka-authtoken/demo-config.yml start demo
+mongrel2: m2sh.rb -c example/mongrel2.sqlite start
+demo: strelka -D example -l debug -c example/demo-config.yml start demo
 

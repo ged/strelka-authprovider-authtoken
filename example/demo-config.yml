@@ -1,0 +1,34 @@
+---
+mongrel2:
+  configdb: example/mongrel2.sqlite
+
+logging:
+  __default__: debug (color)
+  inversion: info (color)
+
+auth:
+  provider: authtoken
+
+authtoken:
+  cookie_name: auth
+  realm: AuthToken Demo
+
+# Configure the SCS cookie class
+# These are the defaults; they're just here for documentation
+scs:
+  cipher_type: 'aes-128-cbc'
+  digest_type: 'sha1'
+  block_size: 16
+  framing_byte: '|'
+  max_session_age: 3600
+  compression: false
+
+demo:
+  key: 9a07c0a019bfd7450aa6110ac52b4be4
+  users:
+    demo: 64decdcb776fb210103123fc732b5ead77bdcf8b
+
+templates:
+  template_paths:
+    - example/templates
+

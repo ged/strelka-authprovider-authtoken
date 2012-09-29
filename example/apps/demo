@@ -1,0 +1,155 @@
+#!/usr/bin/env ruby
+
+require 'openssl'
+require 'strelka'
+require 'configurability'
+
+
+# An application that demonstrates the 'authtoken' auth provider for Strelka apps.
+class AuthTokenDemo < Strelka::App
+	extend Configurability,
+	       Strelka::MethodUtilities
+
+
+	# Configurability API -- use the 'demo' section of the config
+	config_key :demo
+
+	# Default config -- use a random key and a 'demo:demo' account
+	DEFAULT_KEY = OpenSSL::Random.random_bytes( 16 ).unpack( 'H*' ).first
+	CONFIG_DEFAULTS = {
+		key: DEFAULT_KEY,
+		users: {
+			demo: OpenSSL::HMAC.hexdigest('sha1', DEFAULT_KEY, 'demo'),
+		}
+	}
+
+
+	### Configurability API -- Configure the demo app
+	def self::configure( config=nil )
+		config ||= CONFIG_DEFAULTS
+
+		self.log.debug "Configuring the demo app: %p" % [ config ]
+		@key   = [config[:key]].pack('H*') || [CONFIG_DEFAULTS[:key]].pack('H*')
+		@users = config[:users] || CONFIG_DEFAULTS[:users]
+	end
+
+
+	##
+	# Provide readers for configured users and the key
+	singleton_attr_reader :users, :key
+
+
+	# The Strelka appid
+	ID = 'authtoken-demo'
+
+	default_type 'text/html'
+
+
+	#
+	# Auth
+	#
+	plugin :auth
+	require_auth_for '/restricted'
+
+
+	#
+	# Templating
+	#
+	plugin :templating
+	layout 'authtoken/layout.tmpl'
+	templates form: 'authtoken/form.tmpl',
+	          success: 'authtoken/success.tmpl'
+
+	#
+	# Error-handling
+	#
+	plugin :errors
+
+	# Handle AUTH_REQUIRED errors by showing the authentication form
+	on_status HTTP::AUTH_REQUIRED, :form
+
+
+	#
+	# Parameters
+	#
+	plugin :parameters
+
+	param :username, /^[[:alnum:]]\w+$/
+	param :password, /^[\x20-\x7f]+$/
+
+
+	#
+	# Routing
+	#
+	plugin :routing
+
+	# Base action authenticates if parameters are present, shows the form otherwise
+	get do |req|
+		# If there were malformed credentials, show the login form with a message
+		if !req.params.okay?
+			form = self.template( :form )
+			form.errors = req.params.error_messages
+			return form
+
+		# Try to authenticate if there's a valid username
+		elsif req.params[:username]
+			self.check_authentication( req )
+			return req.redirect( req.header.referer )
+
+		# Otherwise, just show the auth form
+		else
+			return :form
+		end
+	end
+
+
+	# This action requires authentication
+	get 'restricted' do |req|
+		return :success
+	end
+
+
+	#
+	# Utility Methods
+	#
+
+	### Check authentication parameters in the specified +req+ against configured users,
+	### and add an authtoken to the response if authentication succeeds.
+	def check_authentication( req )
+		username = req.params[:username]
+		password = req.params[:password]
+
+		unless hmac = self.class.users[ username ]
+			self.log.error "Auth failure: no such user %p" % [ username ]
+			finish_with( HTTP::AUTH_REQUIRED, "authentication failure" )
+		end
+
+		pw_hmac = OpenSSL::HMAC.hexdigest( 'sha1', self.class.key, password )
+		self.log.debug "  hash of 'demo' is: %p" % [ OpenSSL::HMAC.hexdigest('sha1', self.class.key, 'demo') ]
+
+		unless hmac == pw_hmac
+			self.log.error "Auth failure: password digests don't match: expected %p, got %p" %
+				[ hmac, pw_hmac ]
+			finish_with( HTTP::AUTH_REQUIRED, "authentication failure" )
+		end
+
+		# Tell the auth provider that the user provided valid credentials
+		self.auth_provider.auth_succeeded( req, username )
+
+		return username
+	end
+
+
+	### Syntax sugar to allow returning 'false' while logging a reason for doing so.
+	### Log a message at 'info' level and return false.
+	def log_failure( reason )
+		self.log.warn "Auth failure: %s" % [ reason ]
+		header = "Basic realm=%s" % [ self.class.realm || self.app.conn.app_id ]
+		finish_with( HTTP::AUTH_REQUIRED, "Requires authentication.", www_authenticate: header )
+	end
+
+end # class AuthTokenDemo
+
+Encoding.default_internal = Encoding::UTF_8
+AuthTokenDemo.run if $0 == __FILE__
+
